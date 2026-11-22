@@ -35,9 +35,12 @@ struct Snapshot: Codable {
     private var version = -1
     private var known: [String: String] = [:]
     private var task: Task<Void, Never>?
+    private var fresh = true
+    private var failures = 0
 
     func start() {
         guard task == nil else { return }
+        fresh = true; failures = 0
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         task = Task { while !Task.isCancelled { await poll() } }
     }
@@ -76,7 +79,10 @@ struct Snapshot: Codable {
 
     private func poll() async {
         guard paired else { try? await Task.sleep(for: .seconds(2)); return }
-        guard let req = request("/api/sessions", query: [URLQueryItem(name: "since", value: String(version))]) else {
+        // First request after the app opens returns at once (no "since"), so a stale screen or
+        // error never sits there for the 25 s a long poll can wait.
+        let query = fresh ? [] : [URLQueryItem(name: "since", value: String(version))]
+        guard let req = request("/api/sessions", query: query) else {
             error = "Set relay in Settings"; try? await Task.sleep(for: .seconds(5)); return
         }
         do {
@@ -88,8 +94,15 @@ struct Snapshot: Codable {
             version = snap.version; sessions = snap.sessions; pcOnline = snap.pcOnline; error = nil
             catalog = snap.catalog ?? []; results = snap.results ?? []
             quickReplies = snap.quickReplies ?? []; queued = snap.queued ?? []
+            fresh = false; failures = 0
         } catch {
-            self.error = "Relay unreachable"; try? await Task.sleep(for: .seconds(5))
+            // Leaving the app (wrist down) cancels the request: that is not a relay problem.
+            if Task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError { return }
+            failures += 1
+            if failures >= 2 {   // one blip on watch Wi-Fi/LTE is normal; only say so when it persists
+                self.error = error is DecodingError ? "Update the app (relay format changed)" : "Relay unreachable"
+            }
+            try? await Task.sleep(for: .seconds(failures >= 2 ? 5 : 1))
         }
     }
 

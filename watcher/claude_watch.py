@@ -71,7 +71,7 @@ def quick_replies():
 def _blocks(content):
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
 
-def read_session(path):
+def read_session(path, app_mode=""):
     s = {"id": os.path.basename(path)[:-6], "title": "", "cwd": "", "state": "ready", "detail": "",
          "updated": os.path.getmtime(path), "model": "", "effort": "", "mode": ""}
     pending, first_prompt, custom, last_text, last = {}, "", "", "", None
@@ -121,16 +121,57 @@ def read_session(path):
         if name in ASK_TOOLS:
             state = "waiting"
             detail = "Claude asked you a question" if name == "AskUserQuestion" else "Plan waiting for approval"
-        elif idle > STALL_S:
+        elif idle > STALL_S and (app_mode or s["mode"]) not in ("bypassPermissions", "dontAsk"):
+            # a session that never asks permission is just running a long tool, not waiting
             state, detail = "waiting", f"Permission? ({name} waiting {int(idle)}s)"
+    if state == "working" and time.time() - s["updated"] > 600:
+        state, detail = "stopped", "No activity for 10+ min (interrupted?)"
     s["title"] = _title(custom or first_prompt) or os.path.basename(s["cwd"]) or "Claude session"
     s.update(state=state, detail=detail)
     return s
 
+def app_sessions():
+    """The Claude desktop app's own session records (one JSON per session). They say whether a
+    session is archived, its title, permission mode and which transcript it writes to."""
+    local = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    out = []
+    for f in glob.glob(os.path.join(local, "Claude-Data", "*", "claude-code-sessions", "*", "*", "local_*.json")):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                o = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(o, dict):
+            out.append(o)
+    return out
+
+def _transcript(cli_id):
+    if not cli_id:
+        return None
+    hits = glob.glob(os.path.join(PROJECTS, "*", cli_id + ".jsonl"))
+    return max(hits, key=os.path.getmtime) if hits else None
+
 def sessions():
     cutoff = time.time() - RECENT_H * 3600
-    files = [f for f in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")) if os.path.getmtime(f) > cutoff]
-    out = [read_session(f) for f in files]
+    meta = app_sessions()
+    out = []
+    if meta:
+        # Only sessions the app shows: not archived, active in the last RECENT_H hours.
+        for o in meta:
+            if o.get("isArchived") or (o.get("lastActivityAt") or 0) / 1000 < cutoff:
+                continue
+            path = _transcript(o.get("lastAssistantCliSessionId") or o.get("cliSessionId"))
+            if not path:
+                continue
+            s = read_session(path, o.get("permissionMode") or "")
+            s["title"] = _title(o.get("title") or "") or s["title"]
+            s["mode"] = o.get("permissionMode") or s["mode"]
+            if o.get("interruptedAwaitingPerson"):
+                s["state"], s["detail"] = "waiting", s["detail"] or "Waiting for you"
+            out.append(s)
+    else:   # no desktop app records: fall back to every recent transcript
+        files = [f for f in glob.glob(os.path.join(PROJECTS, "*", "*.jsonl")) if os.path.getmtime(f) > cutoff]
+        out = [read_session(f) for f in files]
     out.sort(key=lambda s: ({"waiting": 0, "ready": 1, "working": 2}.get(s["state"], 3), -s["updated"]))
     return out[:20]
 
