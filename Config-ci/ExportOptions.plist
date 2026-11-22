@@ -18,6 +18,8 @@
         <string>Claude Watch App Store</string>
         <key>au.com.strapify.claudewatch.watchkitapp</key>
         <string>Claude Watch Watch App Store</string>
+        <key>au.com.strapify.claudewatch.watchkitapp.widgets</key>
+        <string>Claude Watch Widgets App Store</string>
     </dict>
     <key>teamID</key>
     <string>TEAM_ID_PLACEHOLDER</string>

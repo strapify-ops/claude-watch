@@ -36,7 +36,14 @@ targets:
   ClaudeWatch:
     type: application
     platform: watchOS
-    sources: [ClaudeWatch]
+    sources: [ClaudeWatch, Shared]
+    dependencies:
+      - target: ClaudeWatchWidgets
+    entitlements:
+      path: Config/ClaudeWatch.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)au.com.strapify.claudewatch.shared
     info:
       path: Config/Info.plist
       properties:
@@ -54,6 +61,33 @@ targets:
         PRODUCT_NAME: ClaudeWatch
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         PROVISIONING_PROFILE_SPECIFIER: $(CW_PROFILE_WATCH)
+
+  # Watch-face complication: sessions waiting / working / ready.
+  ClaudeWatchWidgets:
+    type: app-extension
+    platform: watchOS
+    sources: [Widgets, Shared]
+    info:
+      path: Config/Widgets-Info.plist
+      properties:
+        CFBundleDisplayName: Claude Watch
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Config/Widgets.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)au.com.strapify.claudewatch.shared
+    settings:
+      groups: [common]
+      base:
+        TARGETED_DEVICE_FAMILY: "4"
+        PRODUCT_BUNDLE_IDENTIFIER: au.com.strapify.claudewatch.watchkitapp.widgets
+        PRODUCT_NAME: ClaudeWatchWidgets
+        SKIP_INSTALL: YES
+        PROVISIONING_PROFILE_SPECIFIER: $(CW_PROFILE_WIDGETS)
 
 schemes:
   ClaudeWatch:

@@ -177,11 +177,10 @@ struct ComposeView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var m: Monitor
-    @AppStorage("relay") var relay = Monitor.defaultRelay
     var body: some View {
         Form {
-            TextField("Relay URL", text: $relay).textContentType(.URL)
-            if relay != Monitor.defaultRelay { Button("Use default relay") { relay = Monitor.defaultRelay } }
+            TextField("Relay URL", text: Binding(get: { m.relay }, set: { m.relay = $0 })).textContentType(.URL)
+            if m.relay != Monitor.defaultRelay { Button("Use default relay") { m.relay = Monitor.defaultRelay } }
             if m.paired { Button("Unpair", role: .destructive) { m.unpair() } }
         }
     }

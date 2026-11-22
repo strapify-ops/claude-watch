@@ -9,6 +9,7 @@ name: testflight
 #   DIST_P12_PASSWORD   its password
 #   PROFILE_APP         base64 of "Claude Watch App Store" (iPhone container, au.com.strapify.claudewatch)
 #   PROFILE_WATCH       base64 of "Claude Watch Watch App Store" (.watchkitapp)
+#   PROFILE_WIDGETS     base64 of "Claude Watch Widgets App Store" (.watchkitapp.widgets, the complication)
 # Signing is manual: the team has no registered devices, so Xcode's automatic (development)
 # signing cannot archive.
 # Runs when a version is ready: push to main touching the app, or by hand from the Actions tab.
@@ -17,6 +18,8 @@ on:
     branches: [main]
     paths:
       - ClaudeWatch/**
+      - Widgets/**
+      - Shared/**
       - project.yml
   workflow_dispatch:
 
@@ -37,11 +40,12 @@ jobs:
       DIST_P12_PASSWORD: ${{ secrets.DIST_P12_PASSWORD }}
       PROFILE_APP: ${{ secrets.PROFILE_APP }}
       PROFILE_WATCH: ${{ secrets.PROFILE_WATCH }}
+      PROFILE_WIDGETS: ${{ secrets.PROFILE_WIDGETS }}
     steps:
       - name: Check the signing secrets are set
         id: ready
         run: |
-          if [ -n "$APPLE_TEAM_ID" ] && [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8" ] && [ -n "$DIST_P12" ] && [ -n "$PROFILE_APP" ] && [ -n "$PROFILE_WATCH" ]; then
+          if [ -n "$APPLE_TEAM_ID" ] && [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ] && [ -n "$ASC_KEY_P8" ] && [ -n "$DIST_P12" ] && [ -n "$PROFILE_APP" ] && [ -n "$PROFILE_WATCH" ] && [ -n "$PROFILE_WIDGETS" ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
           else
             echo "ok=false" >> "$GITHUB_OUTPUT"
@@ -86,6 +90,7 @@ jobs:
           mkdir -p "$PROFILES"
           printf '%s' "$PROFILE_APP" | base64 --decode > "$PROFILES/claudewatch-app.mobileprovision"
           printf '%s' "$PROFILE_WATCH" | base64 --decode > "$PROFILES/claudewatch-watch.mobileprovision"
+          printf '%s' "$PROFILE_WIDGETS" | base64 --decode > "$PROFILES/claudewatch-widgets.mobileprovision"
           security find-identity -v -p codesigning "$KC" | grep -c "Apple Distribution"
 
       - name: Archive (signed, build number = run number)
@@ -106,6 +111,7 @@ jobs:
             CODE_SIGN_IDENTITY="Apple Distribution" \
             CW_PROFILE_APP="Claude Watch App Store" \
             CW_PROFILE_WATCH="Claude Watch Watch App Store" \
+            CW_PROFILE_WIDGETS="Claude Watch Widgets App Store" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             | tee "$RUNNER_TEMP/archive.log" | grep -E "error|warning: .*sign|ARCHIVE|\*\*" || true
           grep -q "ARCHIVE SUCCEEDED" "$RUNNER_TEMP/archive.log"

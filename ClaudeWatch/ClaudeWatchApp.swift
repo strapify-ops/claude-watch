@@ -1,31 +1,19 @@
 import SwiftUI
 import UserNotifications
 import WatchKit
-
-struct Session: Codable, Identifiable, Equatable {
-    let id: String; let title: String; let cwd: String
-    let state: String; let detail: String; let updated: Double
-    var model: String? = nil; var effort: String? = nil
-    var reply: String? = nil   // Claude's full last reply
-}
-struct Tier: Codable, Hashable { let id: String; let name: String }
-/// One entry of Claude Code's live model list, sent by the PC on every snapshot.
-struct ModelInfo: Codable, Identifiable, Hashable {
-    let slug: String; let name: String; let efforts: [String]; let defaultEffort: String; let tiers: [Tier]
-    var effortNames: [String: String]? = nil   // "xhigh" -> "Extra", as the desktop app labels them
-    var id: String { slug }
-}
-struct CmdResult: Codable, Identifiable { let id: String; let session: String; let status: String; let message: String }
-struct Snapshot: Codable {
-    let version: Int; let pcOnline: Bool; let sessions: [Session]
-    var catalog: [ModelInfo]? = nil; var results: [CmdResult]? = nil
-    var quickReplies: [String]? = nil; var queued: [String]? = nil
-}
+import WidgetKit
 
 @MainActor final class Monitor: ObservableObject {
-    static let defaultRelay = "https://claude-watch.167-233-232-19.sslip.io"
-    @AppStorage("relay") var relay = Monitor.defaultRelay
-    @AppStorage("token") var token = ""
+    static let defaultRelay = SharedConfig.defaultRelay
+    // Kept in a keychain item shared with the complication (see Shared/Shared.swift).
+    var relay: String {
+        get { SharedConfig.relay }
+        set { objectWillChange.send(); SharedConfig.relay = newValue }
+    }
+    var token: String {
+        get { SharedConfig.token }
+        set { objectWillChange.send(); SharedConfig.token = newValue; WidgetCenter.shared.reloadAllTimelines() }
+    }
     var paired: Bool { !token.isEmpty }
     @Published var sessions: [Session] = []
     @Published var catalog: [ModelInfo] = []
@@ -37,6 +25,7 @@ struct Snapshot: Codable {
     private var version = -1
     private var known: [String: String] = [:]
     private var task: Task<Void, Never>?
+    private var lastCounts: SessionCounts?
     private var fresh = true
     private var failures = 0
 
@@ -92,7 +81,12 @@ struct Snapshot: Codable {
             if (resp as? HTTPURLResponse)?.statusCode == 401 { unpair(); return }   // token changed on the PC
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             let snap = try JSONDecoder().decode(Snapshot.self, from: data)
-            if snap.version != version { announce(snap.sessions, first: version < 0) }
+            if snap.version != version {
+                announce(snap.sessions, first: version < 0)
+                // complication: refresh when the counts it shows change (reloads are budgeted)
+                let counts = SessionCounts(snap.sessions)
+                if counts != lastCounts { lastCounts = counts; WidgetCenter.shared.reloadAllTimelines() }
+            }
             version = snap.version; sessions = snap.sessions; pcOnline = snap.pcOnline; error = nil
             catalog = snap.catalog ?? []; results = snap.results ?? []
             quickReplies = snap.quickReplies ?? []; queued = snap.queued ?? []
