@@ -3,6 +3,8 @@
 //               GET  /api/commands            (takes queued commands, clears the queue)
 //   Watch:      GET  /api/sessions?since=N    (long poll, up to 25 s; watchOS has no WebSockets)
 //               POST /api/commands            {session, prompt, model?, effort?, tier?}
+//   Pairing:    POST /api/pair (PC, token)    -> {code}   6 digits, 10 min, single use
+//               POST /api/pair/claim {code}   -> {token}  (no auth; rate limited)
 // env: PORT (8792), TOKEN (shared secret, required)
 const http = require('http');
 const crypto = require('crypto');
@@ -12,6 +14,8 @@ if (!TOKEN) { console.error('TOKEN env required'); process.exit(1); }
 let state = { version: 0, pcSeen: 0, sessions: [], catalog: [], results: [], quickReplies: [] };
 let queue = [];      // commands not yet picked up by the PC
 let waiters = [];
+let pair = null;       // {code, expires, misses}
+let pairFails = [];    // timestamps of wrong claims (last hour)
 
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
 const authed = req => (req.headers.authorization || '') === 'Bearer ' + TOKEN;
@@ -30,7 +34,33 @@ const str = (v, max) => typeof v === 'string' ? v.slice(0, max) : '';
 http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (url.pathname === '/health') return send(res, 200, { ok: true });
+
+  // Pairing: the PC (holding the token) asks for a 6-digit code; the watch trades the code for
+  // the token. One code at a time, 10 minutes, single use, 5 wrong guesses kill it, and more
+  // than 20 wrong guesses in an hour shut pairing off until the hour is up.
+  if (url.pathname === '/api/pair/claim' && req.method === 'POST') {
+    return readBody(req, b => {
+      const now = Date.now();
+      pairFails = pairFails.filter(t => now - t < 3600000);
+      if (pairFails.length >= 20) return send(res, 429, { error: 'Too many tries. Wait an hour.' });
+      const ok = pair && now < pair.expires && b && typeof b.code === 'string' &&
+        crypto.timingSafeEqual(Buffer.from(b.code.padEnd(6).slice(0, 6)), Buffer.from(pair.code));
+      if (!ok) {
+        pairFails.push(now);
+        if (pair && ++pair.misses >= 5) pair = null;
+        return send(res, 403, { error: pair ? 'Wrong code' : 'No active code. Make a new one on the PC.' });
+      }
+      pair = null;
+      send(res, 200, { token: TOKEN });
+    });
+  }
+
   if (!authed(req)) return send(res, 401, { error: 'bad token' });
+
+  if (url.pathname === '/api/pair' && req.method === 'POST') {
+    pair = { code: String(crypto.randomInt(0, 1000000)).padStart(6, '0'), expires: Date.now() + 600000, misses: 0 };
+    return send(res, 200, { code: pair.code, expiresIn: 600 });
+  }
 
   if (url.pathname === '/api/sessions' && req.method === 'POST') {
     return readBody(req, b => {

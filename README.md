@@ -8,7 +8,7 @@ Claude Code (PC) -> ~/.claude/projects/*/<session>.jsonl -> watcher/claude_watch
 
 - **watcher/** reads Claude Code's own session transcripts, so no Claude Code settings or hooks change. "Waiting" means Claude asked a question (AskUserQuestion), a plan is waiting for approval, the last reply ends in `?`, or a tool call has had no result for 15 s (a permission prompt).
 - **server/** zero-dependency Node relay, in memory, Bearer token: `TOKEN=... node server/server.js` (port 8792).
-- **ClaudeWatch/** SwiftUI watchOS 10 app (XcodeGen `project.yml`, built by GitHub Actions on macOS). Enter the relay URL and token in Settings on the watch.
+- **ClaudeWatch/** SwiftUI watchOS 10 app (XcodeGen `project.yml`, built by GitHub Actions on macOS). The relay address is built in. To connect, double-click `Pair Claude Watch.cmd` on the PC and type the 6-digit code it shows into the watch (10 minutes, single use; 5 wrong guesses kill a code, 20 an hour shut pairing off for the hour).
 
 **Sending messages:** open a session on the watch > Send to Claude. Pick a quick reply or dictate, and optionally a model and effort. The PC runs `claude -p --resume <id> --model <model> --effort <effort> --permission-mode <the session's own mode>`.
 

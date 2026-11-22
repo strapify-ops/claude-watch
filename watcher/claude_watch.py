@@ -230,10 +230,23 @@ def snapshot(sess):
         res = [dict(r) for r in RESULTS]
     return {"sessions": sess, "catalog": catalog(), "results": res, "quickReplies": quick_replies()}
 
+def pair(relay, token):
+    """Ask the relay for a one-time code and show it (console and a Windows pop-up)."""
+    try:
+        code = call(relay, token, "/api/pair", {}).get("code", "")
+        msg = f"Pairing code: {code[:3]} {code[3:]}\n\nOn the watch: Claude Watch > Pair, type it in.\nValid for 10 minutes, once."
+    except Exception as e:
+        msg = f"Could not get a pairing code: {e}"
+    print(msg)
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, msg, "Claude Watch", 0x40)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--relay", default=os.environ.get("CLAUDE_WATCH_RELAY", "")); ap.add_argument("--token", default=os.environ.get("CLAUDE_WATCH_TOKEN", ""))
     ap.add_argument("--print", action="store_true"); ap.add_argument("--every", type=float, default=3)
+    ap.add_argument("--pair", action="store_true", help="show a 6-digit code to type on the watch")
     ap.add_argument("--dry-run", action="store_true", help="validate commands but do not run claude")
     a = ap.parse_args()
     if not a.token:   # deploy.sh keeps the token here
@@ -242,6 +255,8 @@ def main():
                 a.token = f.read().strip()
         except OSError:
             pass
+    if a.pair:
+        return pair(a.relay, a.token)
     if a.print or not a.relay:
         json.dump(snapshot(sessions()), sys.stdout, indent=1); return
     prev, beat = None, 0

@@ -21,8 +21,10 @@ struct Snapshot: Codable {
 }
 
 @MainActor final class Monitor: ObservableObject {
-    @AppStorage("relay") var relay = ""
+    static let defaultRelay = "https://claude-watch.167-233-232-19.sslip.io"
+    @AppStorage("relay") var relay = Monitor.defaultRelay
     @AppStorage("token") var token = ""
+    var paired: Bool { !token.isEmpty }
     @Published var sessions: [Session] = []
     @Published var catalog: [ModelInfo] = []
     @Published var results: [CmdResult] = []
@@ -51,13 +53,36 @@ struct Snapshot: Codable {
         return r
     }
 
+    /// Trade the 6-digit code shown on the PC for the relay token. Returns an error message or nil.
+    func pair(code: String) async -> String? {
+        guard var req = request("/api/pair/claim") else { return "Bad relay address" }
+        req.httpMethod = "POST"
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["code": code])
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if (resp as? HTTPURLResponse)?.statusCode == 200, let t = obj?["token"] as? String {
+                objectWillChange.send()   // @AppStorage inside an ObservableObject does not publish
+                token = t; version = -1; error = nil
+                WKInterfaceDevice.current().play(.success)
+                return nil
+            }
+            WKInterfaceDevice.current().play(.failure)
+            return obj?["error"] as? String ?? "Pairing failed"
+        } catch { return "Relay unreachable" }
+    }
+
+    func unpair() { objectWillChange.send(); token = ""; sessions = []; version = -1 }
+
     private func poll() async {
+        guard paired else { try? await Task.sleep(for: .seconds(2)); return }
         guard let req = request("/api/sessions", query: [URLQueryItem(name: "since", value: String(version))]) else {
             error = "Set relay in Settings"; try? await Task.sleep(for: .seconds(5)); return
         }
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.userAuthenticationRequired) }
+            if (resp as? HTTPURLResponse)?.statusCode == 401 { unpair(); return }   // token changed on the PC
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             let snap = try JSONDecoder().decode(Snapshot.self, from: data)
             if snap.version != version { announce(snap.sessions, first: version < 0) }
             version = snap.version; sessions = snap.sessions; pcOnline = snap.pcOnline; error = nil

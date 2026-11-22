@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject var m: Monitor
     var body: some View {
         NavigationStack {
+            if !m.paired { PairView().navigationTitle("Claude") } else {
             List {
                 if let e = m.error { Text(e).foregroundStyle(.red).font(.footnote) }
                 else if !m.pcOnline { Label("PC offline", systemImage: "desktopcomputer").foregroundStyle(.orange) }
@@ -14,6 +15,35 @@ struct ContentView: View {
                 NavigationLink("Settings") { SettingsView() }
             }
             .navigationTitle("Claude")
+            }
+        }
+    }
+}
+
+/// First run (or after the token changes): type the 6-digit code from "Pair Claude Watch" on the PC.
+struct PairView: View {
+    @EnvironmentObject var m: Monitor
+    @State private var code = ""
+    @State private var status: String?
+    @State private var busy = false
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                Text("On your PC, open \"Pair Claude Watch\" and type the code.").font(.footnote).multilineTextAlignment(.center)
+                TextField("6-digit code", text: $code)
+                    .multilineTextAlignment(.center)
+                    .onChange(of: code) { _, v in
+                        let d = String(v.filter(\.isNumber).prefix(6))
+                        if d != v { code = d }
+                    }
+                Button(busy ? "Pairing..." : "Pair") {
+                    busy = true
+                    Task { status = await m.pair(code: code); busy = false; if status != nil { code = "" } }
+                }
+                .disabled(code.count != 6 || busy)
+                if let status { Text(status).foregroundStyle(.red).font(.footnote) }
+                NavigationLink("Relay address") { SettingsView() }.font(.footnote)
+            }
         }
     }
 }
@@ -118,12 +148,13 @@ struct ComposeView: View {
 }
 
 struct SettingsView: View {
-    @AppStorage("relay") var relay = ""
-    @AppStorage("token") var token = ""
+    @EnvironmentObject var m: Monitor
+    @AppStorage("relay") var relay = Monitor.defaultRelay
     var body: some View {
         Form {
             TextField("Relay URL", text: $relay).textContentType(.URL)
-            SecureField("Token", text: $token)
+            if relay != Monitor.defaultRelay { Button("Use default relay") { relay = Monitor.defaultRelay } }
+            if m.paired { Button("Unpair", role: .destructive) { m.unpair() } }
         }
     }
 }
