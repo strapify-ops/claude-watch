@@ -7,13 +7,13 @@ struct ContentView: View {
             List {
                 if let e = m.error { Text(e).foregroundStyle(.red).font(.footnote) }
                 else if !m.pcOnline { Label("PC offline", systemImage: "desktopcomputer").foregroundStyle(.orange) }
-                if m.sessions.isEmpty && m.error == nil { Text("No recent Codex sessions").foregroundStyle(.secondary) }
+                if m.sessions.isEmpty && m.error == nil { Text("No recent Claude sessions").foregroundStyle(.secondary) }
                 ForEach(m.sessions) { s in
                     NavigationLink { DetailView(s: s) } label: { Row(s: s) }
                 }
                 NavigationLink("Settings") { SettingsView() }
             }
-            .navigationTitle("Codex")
+            .navigationTitle("Claude")
         }
     }
 }
@@ -47,7 +47,7 @@ struct DetailView: View {
                 Text("\(m.catalog.first { $0.slug == model }?.name ?? model) · \(live.effort ?? "")").font(.caption2)
             }
             Text(Date(timeIntervalSince1970: live.updated), style: .relative).font(.caption2).foregroundStyle(.secondary)
-            NavigationLink { ComposeView(s: live) } label: { Label("Send to Codex", systemImage: "paperplane.fill") }
+            NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
                 .disabled(live.state == "working" || !m.pcOnline)
             ForEach(m.results.filter { $0.session == s.id }) { r in
                 VStack(alignment: .leading) {
@@ -59,7 +59,7 @@ struct DetailView: View {
     }
 }
 
-/// Prompt + model + effort + speed, all drawn from the PC's live Codex catalog.
+/// Prompt + model + effort + speed, all drawn from the PC live Claude Code catalog.
 struct ComposeView: View {
     @EnvironmentObject var m: Monitor
     @Environment(\.dismiss) private var dismiss

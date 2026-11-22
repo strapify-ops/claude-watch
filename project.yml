@@ -1,16 +1,16 @@
-name: CodexWatch
+name: ClaudeWatch
 options:
   bundleIdPrefix: au.com.strapify
   deploymentTarget: { watchOS: "10.0" }
 targets:
-  CodexWatch:
+  ClaudeWatch:
     type: application
     platform: watchOS
-    sources: [CodexWatch]
+    sources: [ClaudeWatch]
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: au.com.strapify.codexwatch
+      PRODUCT_BUNDLE_IDENTIFIER: au.com.strapify.claudewatch
       GENERATE_INFOPLIST_FILE: YES
-      INFOPLIST_KEY_CFBundleDisplayName: Codex Watch
+      INFOPLIST_KEY_CFBundleDisplayName: Claude Watch
       INFOPLIST_KEY_WKApplication: YES
       INFOPLIST_KEY_WKWatchOnly: YES
       CODE_SIGNING_ALLOWED: NO

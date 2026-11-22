@@ -8,7 +8,7 @@ struct Session: Codable, Identifiable, Equatable {
     var model: String? = nil; var effort: String? = nil
 }
 struct Tier: Codable, Hashable { let id: String; let name: String }
-/// One entry of Codex's live model list, sent by the PC on every snapshot.
+/// One entry of Claude Code's live model list, sent by the PC on every snapshot.
 struct ModelInfo: Codable, Identifiable, Hashable {
     let slug: String; let name: String; let efforts: [String]; let defaultEffort: String; let tiers: [Tier]
     var id: String { slug }
@@ -88,7 +88,7 @@ struct Snapshot: Codable {
             guard !first, old != s.state, s.state == "ready" || s.state == "waiting" else { continue }
             WKInterfaceDevice.current().play(s.state == "waiting" ? .retry : .success)
             let n = UNMutableNotificationContent()
-            n.title = s.state == "waiting" ? "Codex needs you" : "Codex is done"
+            n.title = s.state == "waiting" ? "Claude needs you" : "Claude is done"
             n.body = s.title + (s.detail.isEmpty ? "" : "\n" + s.detail)
             n.sound = .default
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.id + s.state, content: n, trigger: nil))
@@ -96,7 +96,7 @@ struct Snapshot: Codable {
     }
 }
 
-@main struct CodexWatchApp: App {
+@main struct ClaudeWatchApp: App {
     @StateObject private var monitor = Monitor()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {

@@ -1,19 +1,23 @@
-# Codex Watch
+# Claude Watch
 
-Apple Watch app that lists your Codex sessions and taps your wrist when one is **ready** or **waiting for you**.
+Apple Watch app that lists your Claude Code sessions, taps your wrist when one is **ready** or **waiting for you**, and lets you send a session a message with a chosen model and effort.
 
 ```
-Codex (PC) -> ~/.codex/sessions/*.jsonl -> watcher/codex_watch.py -> server/server.js (relay) <- long-poll <- watch app
+Claude Code (PC) -> ~/.claude/projects/*/<session>.jsonl -> watcher/claude_watch.py -> server/server.js (relay) <- long-poll <- watch app
 ```
 
-- **watcher/** reads Codex's own rollout logs, so Codex's config is untouched. Codex does not log approval prompts, so "waiting" means: Codex asked a question (`request_user_input`), its final reply ends in `?`, or a tool call has had no result for 25 s (usually an approval).
+- **watcher/** reads Claude Code's own session transcripts, so no Claude Code settings or hooks change. "Waiting" means Claude asked a question (AskUserQuestion), a plan is waiting for approval, the last reply ends in `?`, or a tool call has had no result for 15 s (a permission prompt).
 - **server/** zero-dependency Node relay, in memory, Bearer token: `TOKEN=... node server/server.js` (port 8792).
-- **CodexWatch/** SwiftUI watchOS 10 app (XcodeGen `project.yml`, CI on macOS). Enter relay URL + token in Settings on the watch.
+- **ClaudeWatch/** SwiftUI watchOS 10 app (XcodeGen `project.yml`, built by GitHub Actions on macOS). Enter the relay URL and token in Settings on the watch.
 
-**Sending commands:** open a session on the watch > Send to Codex. Pick a quick reply or dictate, and optionally a model, effort and speed. The PC runs `codex exec resume <id> -m <model> -c model_reasoning_effort=... -c service_tier=...`. The model list, each model's efforts and default, and the speed tiers are read fresh from `~/.codex/models_cache.json` on every snapshot, and each session's current model/effort comes from its latest `turn_context`. The PC re-checks every choice against that live list before running. Quick replies come from `watcher/quick_replies.json` if present. `--dry-run` checks commands without running Codex.
+**Sending messages:** open a session on the watch > Send to Claude. Pick a quick reply or dictate, and optionally a model and effort. The PC runs `claude -p --resume <id> --model <model> --effort <effort> --permission-mode <the session's own mode>`.
 
-The token lets anyone holding it run Codex prompts on this PC. Keep it long and private.
+Nothing about models is hard-coded. The model list, each model's effort levels and its default come from Claude Code's own model catalog (`~/.claude/cache/model-catalog/`, newest fetch) on every snapshot, and each session's current model, effort and permission mode come from its transcript. The PC re-checks every choice against that live list before running. It uses the newest Claude Code the desktop app has downloaded, because an older `claude` on PATH may not support current models (set `CLAUDE_BIN` to override). Fast mode is not offered: `claude -p` would not switch it on in testing.
 
-Watcher: `python watcher/codex_watch.py --relay https://RELAY --token TOKEN` (`--print` for a one-off snapshot).
+Quick replies come from `watcher/quick_replies.json` if present. `--dry-run` checks commands without running Claude.
 
-Limit: the watch listens while the app is open or recently foregrounded. Alerts with the app closed need APNs push from the relay (needs the paid developer account).
+Run the watcher: `python watcher/claude_watch.py --relay https://RELAY --token TOKEN` (`--print` for a one-off snapshot).
+
+The token lets anyone holding it run Claude prompts on this PC in each session's own permission mode. Keep it long and private.
+
+Limits: the watch listens while the app is open or recently used. Alerts with the app closed need APNs push from the relay. A message sent from the watch goes into the session's transcript, but a desktop-app window that already has that session open may not show it until reopened.

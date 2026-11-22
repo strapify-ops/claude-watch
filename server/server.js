@@ -1,4 +1,4 @@
-// Codex Watch relay - zero deps.
+// Claude Watch relay - zero deps.
 //   PC watcher: POST /api/sessions (snapshot: sessions, catalog, results, quickReplies)
 //               GET  /api/commands            (takes queued commands, clears the queue)
 //   Watch:      GET  /api/sessions?since=N    (long poll, up to 25 s; watchOS has no WebSockets)
@@ -74,4 +74,4 @@ http.createServer((req, res) => {
     return;
   }
   send(res, 404, { error: 'not found' });
-}).listen(PORT, () => console.log('codex-watch relay on', PORT));
+}).listen(PORT, () => console.log('claude-watch relay on', PORT));
