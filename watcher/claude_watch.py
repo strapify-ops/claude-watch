@@ -232,10 +232,16 @@ def snapshot(sess):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--relay"); ap.add_argument("--token", default=os.environ.get("CLAUDE_WATCH_TOKEN", ""))
+    ap.add_argument("--relay", default=os.environ.get("CLAUDE_WATCH_RELAY", "")); ap.add_argument("--token", default=os.environ.get("CLAUDE_WATCH_TOKEN", ""))
     ap.add_argument("--print", action="store_true"); ap.add_argument("--every", type=float, default=3)
     ap.add_argument("--dry-run", action="store_true", help="validate commands but do not run claude")
     a = ap.parse_args()
+    if not a.token:   # deploy.sh keeps the token here
+        try:
+            with open(os.path.join(os.path.expanduser("~"), ".claude-watch", "token"), encoding="utf-8") as f:
+                a.token = f.read().strip()
+        except OSError:
+            pass
     if a.print or not a.relay:
         json.dump(snapshot(sessions()), sys.stdout, indent=1); return
     prev, beat = None, 0

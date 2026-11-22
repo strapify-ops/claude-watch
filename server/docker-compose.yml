@@ -1,0 +1,23 @@
+# Claude Watch relay on the box (/opt/claudewatch). Joins crm_default so crm-caddy-1 proxies
+# claude-watch.167-233-232-19.sslip.io -> claudewatch:8792 by name.
+# TOKEN lives only in /opt/claudewatch/.env on the box (never in git). State is in memory.
+services:
+  claudewatch:
+    build: .
+    container_name: claudewatch
+    restart: unless-stopped
+    mem_limit: 48m
+    cpus: 0.25
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - path: .env
+        required: true
+
+networks:
+  default:
+    name: crm_default
+    external: true

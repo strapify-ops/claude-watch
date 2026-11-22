@@ -16,7 +16,9 @@ Nothing about models is hard-coded. The model list, each model's effort levels a
 
 Quick replies come from `watcher/quick_replies.json` if present. `--dry-run` checks commands without running Claude.
 
-Run the watcher: `python watcher/claude_watch.py --relay https://RELAY --token TOKEN` (`--print` for a one-off snapshot).
+Live relay: `https://claude-watch.167-233-232-19.sslip.io` (box `/opt/claudewatch`, container `claudewatch` on `crm_default`, Caddy vhost in the CRM repo). Update it with `bash server/deploy.sh`; the first run makes the token and keeps it in `~/.claude-watch/token` on the PC and `/opt/claudewatch/.env` on the box.
+
+The PC watcher runs as the Windows scheduled task "Claude Watch relay feed" (at logon, restarts on failure): `pythonw watcher/claude_watch.py --relay https://claude-watch.167-233-232-19.sslip.io` (token read from `~/.claude-watch/token`; `--print` for a one-off snapshot).
 
 The token lets anyone holding it run Claude prompts on this PC in each session's own permission mode. Keep it long and private.
 
