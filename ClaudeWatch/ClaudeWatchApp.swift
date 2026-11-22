@@ -12,6 +12,7 @@ struct Tier: Codable, Hashable { let id: String; let name: String }
 /// One entry of Claude Code's live model list, sent by the PC on every snapshot.
 struct ModelInfo: Codable, Identifiable, Hashable {
     let slug: String; let name: String; let efforts: [String]; let defaultEffort: String; let tiers: [Tier]
+    var effortNames: [String: String]? = nil   // "xhigh" -> "Extra", as the desktop app labels them
     var id: String { slug }
 }
 struct CmdResult: Codable, Identifiable { let id: String; let session: String; let status: String; let message: String }

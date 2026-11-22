@@ -50,7 +50,9 @@ def catalog():
         if m.get("hidden") or not m.get("id"):
             continue
         efforts = [e.get("id") for e in (m.get("thinking") or {}).get("effort_options") or [] if e.get("id")]
-        out.append({"slug": m["id"], "name": m.get("name") or m["id"], "efforts": efforts,
+        # menu labels the desktop app shows (xhigh = "Extra"), used to drive its model menu
+        effort_names = {e.get("id"): e.get("name") or e.get("id") for e in (m.get("thinking") or {}).get("effort_options") or [] if e.get("id")}
+        out.append({"slug": m["id"], "name": m.get("name") or m["id"], "efforts": efforts, "effortNames": effort_names,
                     "defaultEffort": (m.get("runtime") or {}).get("default_effort") or "",
                     # fast mode exists in the catalog, but `claude -p` ignores every way we
                     # found to switch it on (fast_mode_state stays "off"), so it is not offered
@@ -167,6 +169,7 @@ def sessions():
             s = read_session(path, o.get("permissionMode") or "")
             s["title"] = _title(o.get("title") or "") or s["title"]
             s["mode"] = o.get("permissionMode") or s["mode"]
+            s["appId"] = o.get("sessionId") or ""
             if o.get("interruptedAwaitingPerson"):
                 s["state"], s["detail"] = "waiting", s["detail"] or "Waiting for you"
             out.append(s)
@@ -224,11 +227,63 @@ def find_claude():
     found = glob.glob(os.path.join(local, "Claude-Data", "*", "claude-code", "*", "*", "claude.exe"))
     return max(found, key=_ver) if found else shutil.which("claude")
 
+TYPE_LOCK = threading.Lock()   # one desktop window, one keyboard: type one message at a time
+
+def type_into_app(cmd, sess, cmd_id, dry_run=False):
+    """Type the message into the LIVE desktop session (type-into-session.ps1), switching model and
+    effort in the app's menu first. Unlike `claude -p --resume`, the session keeps its tools
+    (Chrome, computer use, connectors) and the message and reply show in the app. If the session
+    is mid-turn, the app queues the message itself."""
+    sid, cat = sess["id"], catalog()
+    model_label = effort_label = ""
+    info = next((m for m in cat if m["slug"] == cmd.get("model")), None)
+    if cmd.get("model"):
+        if not info:
+            return _result(cmd_id, sid, "failed", f"model {cmd['model']} is not in Claude Code's model list")
+        model_label = info["name"]
+    if cmd.get("effort"):
+        ref = info or next((m for m in cat if m["slug"] == sess.get("model")), None) or {}
+        if ref and cmd["effort"] not in ref["efforts"]:
+            return _result(cmd_id, sid, "failed", f"effort {cmd['effort']} not supported by {ref['name']}")
+        effort_label = (ref.get("effortNames") or {}).get(cmd["effort"]) or cmd["effort"].capitalize()
+    if cmd.get("tier"):
+        return _result(cmd_id, sid, "failed", "fast mode cannot be set from the watch")
+    _result(cmd_id, sid, "running", "Typing into the session on your PC...")
+
+    def work():
+        import tempfile
+        tf = os.path.join(tempfile.gettempdir(), f"claude-watch-{cmd_id}.txt")
+        try:
+            with open(tf, "w", encoding="utf-8") as f:
+                f.write(cmd["prompt"])
+            args = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                    os.path.join(HERE, "type-into-session.ps1"), "-SessionId", sess["appId"], "-TextFile", tf]
+            if model_label: args += ["-Model", model_label]
+            if effort_label: args += ["-Effort", effort_label]
+            if dry_run: args.append("-DryRun")
+            with TYPE_LOCK:
+                p = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=120,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            line = (p.stdout or "").strip().splitlines()[-1:] or [(p.stderr or "no output").strip()[-200:]]
+            if line[0].startswith("ok"):
+                what = " with " + " ".join(x for x in (model_label, effort_label) if x) if (model_label or effort_label) else ""
+                _result(cmd_id, sid, "sent", f"Sent to the session on your PC{what}. Its reply shows above when it finishes.")
+            else:
+                _result(cmd_id, sid, "failed", line[0].replace("fail: ", "Could not type it: ", 1))
+        except Exception as e:
+            _result(cmd_id, sid, "failed", str(e))
+        finally:
+            try: os.remove(tf)
+            except OSError: pass
+    threading.Thread(target=work, daemon=True).start()
+
 def run_command(cmd, all_sessions, dry_run=False):
     cmd_id, sid = cmd.get("id") or str(uuid.uuid4()), cmd.get("session", "")
     sess = next((s for s in all_sessions if s["id"] == sid), None)
     if not sess:
         return _result(cmd_id, sid, "failed", "Session not found on the PC (older than %dh?)" % RECENT_H)
+    if sess.get("appId") and os.name == "nt":
+        return type_into_app(cmd, sess, cmd_id, dry_run)
     if sess["state"] == "working":
         return _result(cmd_id, sid, "failed", "Session is busy - wait for it to finish")
     exe = find_claude()

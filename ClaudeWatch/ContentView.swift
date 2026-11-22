@@ -87,7 +87,7 @@ struct DetailView: View {
                     + Text(Date(timeIntervalSince1970: live.updated), style: .relative).font(.caption2).foregroundStyle(.secondary)
                 }
                 NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
-                    .disabled(live.state == "working" || !m.pcOnline)
+                    .disabled(!m.pcOnline)   // mid-turn is fine: the desktop app queues it
                 Divider()
                 if let reply = live.reply, !reply.isEmpty {
                     MarkdownView(text: reply)
@@ -133,7 +133,8 @@ struct ComposeView: View {
                 Picker("Effort", selection: $effort) {
                     Text("Keep (\(s.effort ?? "default"))").tag("")
                     ForEach(chosen?.efforts ?? [], id: \.self) { e in
-                        Text(e == chosen?.defaultEffort ? "\(e) (default)" : e).tag(e)
+                        let label = chosen?.effortNames?[e] ?? e
+                        Text(e == chosen?.defaultEffort ? "\(label) (default)" : label).tag(e)
                     }
                 }
                 if let tiers = chosen?.tiers, !tiers.isEmpty {
@@ -148,18 +149,29 @@ struct ComposeView: View {
                 if !effort.isEmpty, !(chosen?.efforts.contains(effort) ?? false) { effort = "" }
                 if !tier.isEmpty, !(chosen?.tiers.contains { $0.id == tier } ?? false) { tier = "" }
             }
-            Button(sending ? "Sending..." : "Send") {
-                sending = true
-                Task {
-                    status = await m.send(session: s.id, prompt: prompt, model: model, effort: effort, tier: tier)
-                    sending = false
-                    if status == nil { dismiss() }
-                }
-            }
-            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || sending)
             if let status { Text(status).foregroundStyle(.red).font(.footnote) }
         }
         .navigationTitle("Send")
+        .toolbar {
+            // top right, so it is reachable without scrolling past the model pickers
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { send() } label: {
+                    if sending { ProgressView() } else { Image(systemName: "paperplane.fill") }
+                }
+                .tint(.orange)
+                .accessibilityLabel("Send")
+                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
+            }
+        }
+    }
+
+    func send() {
+        sending = true
+        Task {
+            status = await m.send(session: s.id, prompt: prompt, model: model, effort: effort, tier: tier)
+            sending = false
+            if status == nil { dismiss() }
+        }
     }
 }
 
