@@ -76,23 +76,29 @@ struct DetailView: View {
     /// Re-read from the monitor so state/model refresh while the page is open.
     var live: Session { m.sessions.first { $0.id == s.id } ?? s }
     var body: some View {
-        List {
-            Row(s: live, full: true)
-            if let reply = live.reply, !reply.isEmpty {
-                Text(md(reply)).font(.footnote).fixedSize(horizontal: false, vertical: true)
-            } else if !live.detail.isEmpty {
-                Text(live.detail).font(.footnote).fixedSize(horizontal: false, vertical: true)
-            }
-            if let model = live.model, !model.isEmpty {
-                Text("\(m.catalog.first { $0.slug == model }?.name ?? model) · \(live.effort ?? "")").font(.caption2)
-            }
-            Text(Date(timeIntervalSince1970: live.updated), style: .relative).font(.caption2).foregroundStyle(.secondary)
-            NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
-                .disabled(live.state == "working" || !m.pcOnline)
-            ForEach(m.results.filter { $0.session == s.id }) { r in
-                VStack(alignment: .leading) {
-                    Text(r.status.capitalized).font(.caption2).foregroundStyle(r.status == "failed" ? .red : .secondary)
-                    Text(md(r.message)).font(.caption2).fixedSize(horizontal: false, vertical: true)
+        // ScrollView, not List: a List row turns everything in it into one button, which would
+        // swallow taps on tables and images inside the reply.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                Row(s: live, full: true)
+                if let model = live.model, !model.isEmpty {
+                    Text("\(m.catalog.first { $0.slug == model }?.name ?? model) · \(live.effort ?? "") · ")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    + Text(Date(timeIntervalSince1970: live.updated), style: .relative).font(.caption2).foregroundStyle(.secondary)
+                }
+                NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
+                    .disabled(live.state == "working" || !m.pcOnline)
+                Divider()
+                if let reply = live.reply, !reply.isEmpty {
+                    MarkdownView(text: reply)
+                } else if !live.detail.isEmpty {
+                    Text(live.detail).font(.footnote).fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(m.results.filter { $0.session == s.id }) { r in
+                    Divider()
+                    Text("From the watch · " + r.status.capitalized).font(.caption2)
+                        .foregroundStyle(r.status == "failed" ? .red : .secondary)
+                    MarkdownView(text: r.message)
                 }
             }
         }

@@ -6,7 +6,7 @@ services:
     build: .
     container_name: claudewatch
     restart: unless-stopped
-    mem_limit: 48m
+    mem_limit: 96m   # up to 24 MB of reply images in memory
     cpus: 0.25
     read_only: true
     cap_drop:

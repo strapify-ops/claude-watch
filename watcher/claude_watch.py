@@ -259,6 +259,77 @@ def run_command(cmd, all_sessions, dry_run=False):
             _result(cmd_id, sid, "failed", str(e))
     threading.Thread(target=work, daemon=True).start()
 
+# ---------- images in replies ----------
+# Claude's replies point at pictures as Markdown images or as plain file paths
+# (screenshots, contact sheets). Local files are shrunk to a watch-sized JPEG, uploaded to the
+# relay under their SHA-1, and the reply is rewritten to ![name](cwimg:<sha1>) for the watch.
+# http(s) image links are left as they are; the watch loads those itself.
+
+IMG_EXT = r"(?:png|jpe?g|gif|webp|bmp)"
+MD_IMG = re.compile(r"!\[([^\]]*)\]\(<?([^)>]+?)>?\)")
+# lazy and allowing spaces ("Claude Files"): runs from a drive letter / root to the first image
+# extension; a match that is not a real file is left alone
+BARE_PATH = re.compile(r"(?<![\w(\[/!:\\])((?:[A-Za-z]:[\\/]|\\\\|~[\\/])[^`'\"<>|*?\n\[\]]+?\." + IMG_EXT + r")\b", re.I)
+MD_LINK_PATH = re.compile(r"(?<!!)\[([^\]]*)\]\(<?((?:[A-Za-z]:[\\/]|/|~[\\/])[^)>]+\." + IMG_EXT + r")>?\)", re.I)
+IMG_CACHE = {}       # (path, mtime) -> sha1 of the shrunk JPEG
+RELAY_IMAGES = None  # ids the relay says it holds (None = not asked yet)
+UPLOAD_LOCK = threading.Lock()
+
+def _local(p):
+    p = os.path.expanduser(p.strip().strip("`").replace("%20", " "))
+    if p.lower().startswith("file:///"):
+        p = p[8:]
+    return p if os.path.isfile(p) else None
+
+def _shrink(path):
+    from PIL import Image
+    import hashlib, io
+    with Image.open(path) as im:
+        im.seek(0)
+        im = im.convert("RGB")
+        im.thumbnail((900, 900))          # sharp enough to zoom 3x on a 410 px wide screen
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=72, optimize=True)
+    data = buf.getvalue()
+    return hashlib.sha1(data).hexdigest(), data
+
+def _image_id(relay, token, path):
+    key = (path, os.path.getmtime(path))
+    sha = IMG_CACHE.get(key)
+    if sha and (RELAY_IMAGES is None or sha in RELAY_IMAGES):
+        return sha
+    sha, data = _shrink(path)
+    if relay:
+        req = urllib.request.Request(relay.rstrip("/") + "/api/img/" + sha, data=data, method="PUT",
+                                     headers={"Content-Type": "image/jpeg", "Authorization": "Bearer " + token})
+        urllib.request.urlopen(req, timeout=20).read()
+        if RELAY_IMAGES is not None:
+            RELAY_IMAGES.add(sha)
+    IMG_CACHE[key] = sha
+    return sha
+
+def attach_images(sess, relay, token):
+    """Rewrite each reply so its pictures point at relay copies. A picture that fails stays as text."""
+    def swap(path, alt):
+        lp = _local(path)
+        if not lp:
+            return None
+        try:
+            with UPLOAD_LOCK:
+                return f"![{alt or os.path.basename(lp)}](cwimg:{_image_id(relay, token, lp)})"
+        except Exception as e:
+            print("image skipped:", lp, e, file=sys.stderr)
+            return None
+    for s in sess:
+        r = s.get("reply") or ""
+        if not re.search(IMG_EXT, r, re.I):
+            continue
+        r = MD_IMG.sub(lambda m: swap(m.group(2), m.group(1)) or m.group(0), r)
+        r = MD_LINK_PATH.sub(lambda m: swap(m.group(2), m.group(1)) or m.group(0), r)
+        r = BARE_PATH.sub(lambda m: (swap(m.group(1), "") or m.group(0)), r)
+        r = re.sub(r"`(!\[[^\]]*\]\(cwimg:[0-9a-f]{40}\))`", r"\1", r)   # path was in `code`
+        s["reply"] = r
+
 # ---------- relay I/O ----------
 
 def call(relay, token, path, body=None):
@@ -307,11 +378,17 @@ def main():
             sess = sessions()
             for cmd in call(a.relay, a.token, "/api/commands").get("commands", []):
                 run_command(cmd, sess, a.dry_run)
+            attach_images(sess, a.relay, a.token)
             snap = snapshot(sess)
             key = json.dumps([[(s["id"], s["state"], s["detail"], s["model"], s["effort"]) for s in sess],
                               snap["catalog"], [(r["id"], r["status"]) for r in snap["results"]], snap["quickReplies"]])
             if key != prev or time.time() - beat > 60:   # heartbeat so the watch knows the PC is alive
-                call(a.relay, a.token, "/api/sessions", snap); prev, beat = key, time.time()
+                got = call(a.relay, a.token, "/api/sessions", snap); prev, beat = key, time.time()
+                global RELAY_IMAGES
+                held = set(got.get("images") or [])
+                if RELAY_IMAGES is not None and any(v not in held for v in IMG_CACHE.values()):
+                    prev = None   # relay lost pictures (restart): re-upload on the next pass
+                RELAY_IMAGES = held
         except Exception as e:
             print("relay error:", e, file=sys.stderr)
         time.sleep(a.every)

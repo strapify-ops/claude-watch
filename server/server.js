@@ -14,7 +14,10 @@ if (!TOKEN) { console.error('TOKEN env required'); process.exit(1); }
 let state = { version: 0, pcSeen: 0, sessions: [], catalog: [], results: [], quickReplies: [] };
 let queue = [];      // commands not yet picked up by the PC
 let waiters = [];
-let pair = null;       // {code, expires, misses}
+const IMG_MAX = 600 * 1024, IMG_BUDGET = 24 * 1024 * 1024;
+const images = new Map();   // sha1 -> jpeg Buffer (insertion order = age)
+let imgBytes = 0;
+let pair = null;      // {code, expires, misses}
 let pairFails = [];    // timestamps of wrong claims (last hour)
 
 const send = (res, code, obj) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
@@ -62,6 +65,28 @@ http.createServer((req, res) => {
     return send(res, 200, { code: pair.code, expiresIn: 600 });
   }
 
+  // Images from Claude's replies, shrunk to JPEG by the PC. Kept in memory, oldest dropped
+  // past IMG_BUDGET. PUT /api/img/<sha1>  (PC)   GET /api/img/<sha1>  (watch)
+  const im = url.pathname.match(/^\/api\/img\/([0-9a-f]{40})$/);
+  if (im && req.method === 'PUT') {
+    const chunks = []; let n = 0;
+    req.on('data', c => { n += c.length; if (n > IMG_MAX) req.destroy(); else chunks.push(c); });
+    req.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      if (buf[0] !== 0xff || buf[1] !== 0xd8) return send(res, 400, { error: 'jpeg only' });
+      images.delete(im[1]); images.set(im[1], buf); imgBytes += buf.length;
+      for (const [k, v] of images) { if (imgBytes <= IMG_BUDGET) break; images.delete(k); imgBytes -= v.length; }
+      send(res, 200, { ok: true });
+    });
+    return;
+  }
+  if (im && req.method === 'GET') {
+    const buf = images.get(im[1]);
+    if (!buf) return send(res, 404, { error: 'image gone' });
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'private, max-age=86400', 'Content-Length': buf.length });
+    return res.end(buf);
+  }
+
   if (url.pathname === '/api/sessions' && req.method === 'POST') {
     return readBody(req, b => {
       if (!b) return send(res, 400, { error: 'bad json' });
@@ -72,7 +97,8 @@ http.createServer((req, res) => {
       const changed = fingerprint(next) !== fingerprint(state);
       state = { ...state, ...next, pcSeen: Date.now() };
       if (changed) bump();
-      send(res, 200, { version: state.version });
+      // tell the PC which images survive here, so it re-uploads any lost to a restart
+      send(res, 200, { version: state.version, images: [...images.keys()] });
     });
   }
 
