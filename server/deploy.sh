@@ -15,7 +15,7 @@ mkdir -p "$(dirname "$TOKFILE")"
 [ -s "$TOKFILE" ] || python -c "import secrets;print(secrets.token_urlsafe(32),end='')" > "$TOKFILE"
 
 $SSH 'mkdir -p /opt/claudewatch && umask 077 && cat > /opt/claudewatch/.env.new && printf "TOKEN=%s\n" "$(cat /opt/claudewatch/.env.new)" > /opt/claudewatch/.env && rm /opt/claudewatch/.env.new' < "$TOKFILE"
-scp -q -i "$KEY" -o BatchMode=yes server.js Dockerfile docker-compose.yml $BOX:/opt/claudewatch/
+scp -q -i "$KEY" -o BatchMode=yes server.js push.js Dockerfile docker-compose.yml $BOX:/opt/claudewatch/
 $SSH '
   set -e
   cd /opt/claudewatch

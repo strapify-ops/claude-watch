@@ -16,8 +16,16 @@ services:
     env_file:
       - path: .env
         required: true
+      # APNS_KEY / APNS_KEY_ID / APNS_TEAM_ID for watch push; written once, never by deploy.sh
+      - path: .env.apns
+        required: false
+    volumes:
+      - claudewatch-data:/data   # watch push tokens (devices.json)
 
 networks:
   default:
     name: crm_default
     external: true
+
+volumes:
+  claudewatch-data:

@@ -5,9 +5,11 @@
 //               POST /api/commands            {session, prompt, model?, effort?, tier?}
 //   Pairing:    POST /api/pair (PC, token)    -> {code}   6 digits, 10 min, single use
 //               POST /api/pair/claim {code}   -> {token}  (no auth; rate limited)
-// env: PORT (8792), TOKEN (shared secret, required)
+//   Push:       POST /api/push/register {token}  (watch, after APNs registration)
+// env: PORT (8792), TOKEN (shared secret, required), APNS_* (see push.js)
 const http = require('http');
 const crypto = require('crypto');
+const push = require('./push');
 const PORT = +process.env.PORT || 8792, TOKEN = process.env.TOKEN || '';
 if (!TOKEN) { console.error('TOKEN env required'); process.exit(1); }
 
@@ -60,6 +62,10 @@ http.createServer((req, res) => {
 
   if (!authed(req)) return send(res, 401, { error: 'bad token' });
 
+  if (url.pathname === '/api/push/register' && req.method === 'POST') {
+    return readBody(req, b => send(res, push.register(b && b.token) ? 200 : 400, { ok: true, push: push.enabled, devices: push.deviceCount() }));
+  }
+
   if (url.pathname === '/api/pair' && req.method === 'POST') {
     pair = { code: String(crypto.randomInt(0, 1000000)).padStart(6, '0'), expires: Date.now() + 600000, misses: 0 };
     return send(res, 200, { code: pair.code, expiresIn: 600 });
@@ -95,6 +101,7 @@ http.createServer((req, res) => {
         results: (b.results || []).slice(0, 20), quickReplies: (b.quickReplies || []).slice(0, 12),
       };
       const changed = fingerprint(next) !== fingerprint(state);
+      if (state.pcSeen) push.onSnapshot(state.sessions, next.sessions);   // skip the first snapshot after a restart
       state = { ...state, ...next, pcSeen: Date.now() };
       if (changed) bump();
       // tell the PC which images survive here, so it re-uploads any lost to a restart
@@ -130,4 +137,4 @@ http.createServer((req, res) => {
     return;
   }
   send(res, 404, { error: 'not found' });
-}).listen(PORT, () => console.log('claude-watch relay on', PORT));
+}).listen(PORT, () => console.log('claude-watch relay on', PORT, push.enabled ? 'push ON' : 'push OFF (no APNS key)', push.deviceCount(), 'devices'));

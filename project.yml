@@ -42,6 +42,7 @@ targets:
     entitlements:
       path: Config/ClaudeWatch.entitlements
       properties:
+        aps-environment: production   # TestFlight / App Store builds use production APNs
         keychain-access-groups:
           - $(AppIdentifierPrefix)au.com.strapify.claudewatch.shared
     info:

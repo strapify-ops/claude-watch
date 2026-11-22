@@ -26,13 +26,28 @@ import WidgetKit
     private var known: [String: String] = [:]
     private var task: Task<Void, Never>?
     private var lastCounts: SessionCounts?
+    var pushRegistered = false
+
+    /// Give the relay this watch's APNs token so it can notify with the app closed.
+    func registerPush(_ deviceToken: Data) async {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        guard var req = request("/api/push/register") else { return }
+        req.httpMethod = "POST"
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["token": hex])
+        if let (data, resp) = try? await URLSession.shared.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200 {
+            let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            pushRegistered = (o?["push"] as? Bool) == true   // relay has an APNs key: it will notify
+        }
+    }
     private var fresh = true
     private var failures = 0
 
     func start() {
         guard task == nil else { return }
         fresh = true; failures = 0
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { ok, _ in
+            if ok { DispatchQueue.main.async { WKApplication.shared().registerForRemoteNotifications() } }
+        }
         task = Task { while !Task.isCancelled { await poll() } }
     }
     func stop() { task?.cancel(); task = nil }
@@ -121,6 +136,8 @@ import WidgetKit
             let old = known[s.id]; known[s.id] = s.state
             guard !first, old != s.state, s.state == "ready" || s.state == "waiting" else { continue }
             WKInterfaceDevice.current().play(s.state == "waiting" ? .retry : .success)
+            // With push working the relay sends the notification; a local one would double it.
+            if pushRegistered { continue }
             let n = UNMutableNotificationContent()
             n.title = s.state == "waiting" ? "Claude needs you" : "Claude is done"
             n.body = s.title + (s.detail.isEmpty ? "" : "\n" + s.detail)
@@ -130,12 +147,36 @@ import WidgetKit
     }
 }
 
+/// Receives the APNs device token and hands it to the monitor.
+final class AppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
+    weak var monitor: Monitor?
+    var pendingToken: Data?
+    func applicationDidFinishLaunching() { UNUserNotificationCenter.current().delegate = self }
+    func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
+        Task { @MainActor in
+            if let m = monitor, m.paired { await m.registerPush(deviceToken) } else { pendingToken = deviceToken }
+        }
+    }
+    func didFailToRegisterForRemoteNotificationsWithError(_ error: Error) { print("push registration failed:", error) }
+    // App open: the list already updates and taps the wrist, so no banner on top of it.
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification) async -> UNNotificationPresentationOptions { [] }
+}
+
 @main struct ClaudeWatchApp: App {
+    @WKApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var monitor = Monitor()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
             ContentView().environmentObject(monitor)
+                .task {
+                    delegate.monitor = monitor
+                    // token arrived before the app was paired / ready
+                    if let t = delegate.pendingToken, monitor.paired { await monitor.registerPush(t); delegate.pendingToken = nil }
+                }
+                .onChange(of: monitor.paired) { _, p in
+                    if p { WKApplication.shared().registerForRemoteNotifications() }   // re-send the token after pairing
+                }
                 .onChange(of: phase) { _, p in if p == .background { monitor.stop() } else { monitor.start() } }
                 .onAppear { monitor.start() }
         }
