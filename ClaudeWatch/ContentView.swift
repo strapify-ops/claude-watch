@@ -50,11 +50,12 @@ struct PairView: View {
 
 struct Row: View {
     let s: Session
+    var full = false   // detail page: whole title; list: two lines
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading) {
-                Text(s.title).font(.headline).lineLimit(2)
+                Text(s.title).font(.headline).lineLimit(full ? nil : 2)
                 Text(label).font(.caption2).foregroundStyle(color)
             }
         }
@@ -64,6 +65,11 @@ struct Row: View {
     var label: String { ["waiting": "Waiting for you", "ready": "Ready", "working": "Working..."][s.state] ?? "Stopped" }
 }
 
+/// Claude's replies are Markdown: render bold/italic/code/links, keep line breaks and lists as text.
+func md(_ s: String) -> AttributedString {
+    (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+}
+
 struct DetailView: View {
     @EnvironmentObject var m: Monitor
     let s: Session
@@ -71,8 +77,12 @@ struct DetailView: View {
     var live: Session { m.sessions.first { $0.id == s.id } ?? s }
     var body: some View {
         List {
-            Row(s: live)
-            if !live.detail.isEmpty { Text(live.detail).font(.footnote) }
+            Row(s: live, full: true)
+            if let reply = live.reply, !reply.isEmpty {
+                Text(md(reply)).font(.footnote).fixedSize(horizontal: false, vertical: true)
+            } else if !live.detail.isEmpty {
+                Text(live.detail).font(.footnote).fixedSize(horizontal: false, vertical: true)
+            }
             if let model = live.model, !model.isEmpty {
                 Text("\(m.catalog.first { $0.slug == model }?.name ?? model) · \(live.effort ?? "")").font(.caption2)
             }
@@ -82,7 +92,7 @@ struct DetailView: View {
             ForEach(m.results.filter { $0.session == s.id }) { r in
                 VStack(alignment: .leading) {
                     Text(r.status.capitalized).font(.caption2).foregroundStyle(r.status == "failed" ? .red : .secondary)
-                    Text(r.message).font(.caption2).lineLimit(4)
+                    Text(md(r.message)).font(.caption2).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

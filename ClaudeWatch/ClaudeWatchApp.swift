@@ -6,6 +6,7 @@ struct Session: Codable, Identifiable, Equatable {
     let id: String; let title: String; let cwd: String
     let state: String; let detail: String; let updated: Double
     var model: String? = nil; var effort: String? = nil
+    var reply: String? = nil   // Claude's full last reply
 }
 struct Tier: Codable, Hashable { let id: String; let name: String }
 /// One entry of Claude Code's live model list, sent by the PC on every snapshot.

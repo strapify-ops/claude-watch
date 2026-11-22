@@ -24,6 +24,7 @@ PROJECTS = os.path.join(CLAUDE, "projects")
 HERE = os.path.dirname(os.path.abspath(__file__))
 RECENT_H = 12
 STALL_S = 15
+REPLY_MAX = 6000      # chars of Claude's last reply sent to the watch (full detail page)
 ASK_TOOLS = ("AskUserQuestion", "ExitPlanMode")
 DEFAULT_REPLIES = ["Continue", "Yes, go ahead", "No, stop", "Summarise where you are"]
 
@@ -127,7 +128,7 @@ def read_session(path, app_mode=""):
     if state == "working" and time.time() - s["updated"] > 600:
         state, detail = "stopped", "No activity for 10+ min (interrupted?)"
     s["title"] = _title(custom or first_prompt) or os.path.basename(s["cwd"]) or "Claude session"
-    s.update(state=state, detail=detail)
+    s.update(state=state, detail=detail, reply=last_text[:REPLY_MAX])
     return s
 
 def app_sessions():
@@ -184,9 +185,9 @@ def _result(cmd_id, session, status, message):
     with RESULTS_LOCK:
         for r in RESULTS:
             if r["id"] == cmd_id:
-                r.update(status=status, message=message[:300], at=time.time()); break
+                r.update(status=status, message=message[:REPLY_MAX], at=time.time()); break
         else:
-            RESULTS.insert(0, {"id": cmd_id, "session": session, "status": status, "message": message[:300], "at": time.time()})
+            RESULTS.insert(0, {"id": cmd_id, "session": session, "status": status, "message": message[:REPLY_MAX], "at": time.time()})
         del RESULTS[20:]
 
 def build_args(cmd, sess, cat, exe):
@@ -250,7 +251,7 @@ def run_command(cmd, all_sessions, dry_run=False):
             except ValueError:
                 out = {}
             if p.returncode == 0 and not out.get("is_error"):
-                _result(cmd_id, sid, "done", _title(out.get("result") or "") or "Done")
+                _result(cmd_id, sid, "done", (out.get("result") or "").strip() or "Done")
             else:
                 err = out.get("result") or p.stderr or p.stdout or "claude exited %d" % p.returncode
                 _result(cmd_id, sid, "failed", str(err).strip()[-300:])
