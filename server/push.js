@@ -7,7 +7,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const KEY = (process.env.APNS_KEY || '').replace(/\\n/g, '\n');
+// APNS_KEY_B64 (base64 of the whole .p8 file) is preferred: one line, safe in an env file.
+const KEY = process.env.APNS_KEY_B64 ? Buffer.from(process.env.APNS_KEY_B64, 'base64').toString('utf8')
+  : (process.env.APNS_KEY || '').replace(/\\n/g, '\n');
 const KEY_ID = process.env.APNS_KEY_ID || '', TEAM = process.env.APNS_TEAM_ID || '';
 const TOPIC = process.env.APNS_TOPIC || 'au.com.strapify.claudewatch.watchkitapp';
 const HOST = process.env.APNS_HOST || 'https://api.push.apple.com';
