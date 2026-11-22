@@ -1,0 +1,5 @@
+__pycache__/
+*.xcodeproj/
+build/
+watcher/quick_replies.json
+.DS_Store

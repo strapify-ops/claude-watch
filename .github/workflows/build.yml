@@ -1,0 +1,9 @@
+name: build
+on: [push, workflow_dispatch]
+jobs:
+  watch:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen && xcodegen
+      - run: xcodebuild -project CodexWatch.xcodeproj -scheme CodexWatch -destination 'generic/platform=watchOS Simulator' build

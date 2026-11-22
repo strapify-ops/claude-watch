@@ -1,0 +1,17 @@
+name: CodexWatch
+options:
+  bundleIdPrefix: au.com.strapify
+  deploymentTarget: { watchOS: "10.0" }
+targets:
+  CodexWatch:
+    type: application
+    platform: watchOS
+    sources: [CodexWatch]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: au.com.strapify.codexwatch
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_CFBundleDisplayName: Codex Watch
+      INFOPLIST_KEY_WKApplication: YES
+      INFOPLIST_KEY_WKWatchOnly: YES
+      CODE_SIGNING_ALLOWED: NO
+      SWIFT_VERSION: "5.9"
