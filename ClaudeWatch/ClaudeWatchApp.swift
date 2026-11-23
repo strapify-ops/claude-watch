@@ -20,7 +20,8 @@ import WidgetKit
     @Published var results: [CmdResult] = []
     @Published var quickReplies: [String] = []
     @Published var queued: [String] = []
-    @Published var pcOnline = false
+    /// nil until the relay has answered once since the app opened: unknown, never "offline"
+    @Published var pcOnline: Bool? = nil
     @Published var error: String?
     private var version = -1
     private var known: [String: String] = [:]

@@ -7,8 +7,9 @@ struct ContentView: View {
             if !m.paired { PairView().navigationTitle("Claude") } else {
             List {
                 if let e = m.error { Text(e).foregroundStyle(.red).font(.footnote) }
-                else if !m.pcOnline { Label("PC offline", systemImage: "desktopcomputer").foregroundStyle(.orange) }
-                if m.sessions.isEmpty && m.error == nil { Text("No recent Claude sessions").foregroundStyle(.secondary) }
+                else if m.pcOnline == nil && m.sessions.isEmpty { Label("Connecting...", systemImage: "antenna.radiowaves.left.and.right").foregroundStyle(.secondary) }
+                else if m.pcOnline == false { Label("PC offline", systemImage: "desktopcomputer").foregroundStyle(.orange) }
+                if m.sessions.isEmpty && m.error == nil && m.pcOnline != nil { Text("No recent Claude sessions").foregroundStyle(.secondary) }
                 ForEach(m.sessions) { s in
                     NavigationLink { DetailView(s: s) } label: { Row(s: s) }
                 }
@@ -87,7 +88,7 @@ struct DetailView: View {
                     + Text(Date(timeIntervalSince1970: live.updated), style: .relative).font(.caption2).foregroundStyle(.secondary)
                 }
                 NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
-                    .disabled(!m.pcOnline)   // mid-turn is fine: the desktop app queues it
+                    .disabled(m.pcOnline == false)   // mid-turn is fine: the desktop app queues it
                 Divider()
                 if let reply = live.reply, !reply.isEmpty {
                     MarkdownView(text: reply)
