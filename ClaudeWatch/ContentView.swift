@@ -89,6 +89,10 @@ struct DetailView: View {
                 }
                 NavigationLink { ComposeView(s: live) } label: { Label("Send to Claude", systemImage: "paperplane.fill") }
                     .disabled(m.pcOnline == false)   // mid-turn is fine: the desktop app queues it
+                Button { m.speak(live) } label: {
+                    Label(m.speaking ? "Stop reading" : "Read aloud", systemImage: m.speaking ? "stop.fill" : "speaker.wave.2.fill")
+                }
+                .disabled(Monitor.spoken(live).isEmpty)
                 Divider()
                 if let reply = live.reply, !reply.isEmpty {
                     MarkdownView(text: reply)

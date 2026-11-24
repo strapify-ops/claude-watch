@@ -97,6 +97,7 @@ function onSnapshot(prev, next) {
         alert: { title: waiting ? 'Claude needs you' : 'Claude is done', subtitle: s.title, body: (s.detail || '').slice(0, 180) },
         // 'time-sensitive' would need an extra entitlement; 'active' rings and shows normally
         sound: 'default', 'thread-id': s.id, 'interruption-level': 'active',
+        category: 'SESSION',   // watch shows Reply + Read aloud buttons
       },
       session: s.id,
     };

@@ -1,9 +1,12 @@
+import AVFoundation
 import SwiftUI
 import UserNotifications
 import WatchKit
 import WidgetKit
 
 @MainActor final class Monitor: ObservableObject {
+    /// One monitor for the app, so a notification action handled before the UI exists uses the same one.
+    static let shared = Monitor()
     static let defaultRelay = SharedConfig.defaultRelay
     // Kept in a keychain item shared with the complication (see Shared/Shared.swift).
     var relay: String {
@@ -103,7 +106,9 @@ import WidgetKit
                 let counts = SessionCounts(snap.sessions)
                 if counts != lastCounts { lastCounts = counts; WidgetCenter.shared.reloadAllTimelines() }
             }
-            version = snap.version; sessions = snap.sessions; pcOnline = snap.pcOnline; error = nil
+            version = snap.version; sessions = snap.sessions;
+            if let p = pendingSpeak, let s = snap.sessions.first(where: { $0.id == p }) { pendingSpeak = nil; speak(s) }
+            pcOnline = snap.pcOnline; error = nil
             catalog = snap.catalog ?? []; results = snap.results ?? []
             quickReplies = snap.quickReplies ?? []; queued = snap.queued ?? []
             fresh = false; failures = 0
@@ -131,6 +136,48 @@ import WidgetKit
         } catch { return "Relay unreachable" }
     }
 
+    // MARK: read aloud
+    private let synth = AVSpeechSynthesizer()
+    @Published var speaking = false
+    private var speechDelegate: SpeechDone?
+
+    /// Speak the session's summary: the start of Claude's last reply, Markdown stripped.
+    func speak(_ s: Session) {
+        if synth.isSpeaking { synth.stopSpeaking(at: .immediate); speaking = false; return }
+        let text = Self.spoken(s)
+        guard !text.isEmpty else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        let u = AVSpeechUtterance(string: text)
+        u.voice = AVSpeechSynthesisVoice(language: "en-AU") ?? AVSpeechSynthesisVoice(language: "en-US")
+        if speechDelegate == nil { speechDelegate = SpeechDone { [weak self] in self?.speaking = false }; synth.delegate = speechDelegate }
+        speaking = true
+        synth.speak(u)
+    }
+    func speak(sessionId: String) {
+        if let s = sessions.first(where: { $0.id == sessionId }) { speak(s); return }
+        pendingSpeak = sessionId   // opened from a notification before the first snapshot arrived
+    }
+    var pendingSpeak: String?
+
+    /// Plain text for speech: no code blocks, tables, links or Markdown marks; about a minute long.
+    static func spoken(_ s: Session) -> String {
+        var t = (s.reply?.isEmpty == false ? s.reply! : s.detail)
+        t = t.replacingOccurrences(of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(?m)^\s*\|.*$"#, with: "", options: .regularExpression)      // table rows
+        t = t.replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(?m)^\s*(#+|[-*+]|\d+\.)\s+"#, with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"[*_`~>#]"#, with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"\s*\n+\s*"#, with: ". ", options: .regularExpression)
+        t = t.replacingOccurrences(of: #"(\.\s*){2,}"#, with: ". ", options: .regularExpression)
+        t = t.trimmingCharacters(in: .whitespaces)
+        if t.count > 900 {   // cut at a sentence end
+            let head = String(t.prefix(900))
+            t = head.range(of: ". ", options: .backwards).map { String(head[..<$0.upperBound]) } ?? head
+        }
+        return (s.title.isEmpty ? "" : s.title + ". ") + t
+    }
+
     /// Tap + notify when a session moves into ready or waiting.
     private func announce(_ new: [Session], first: Bool) {
         for s in new {
@@ -143,16 +190,53 @@ import WidgetKit
             n.title = s.state == "waiting" ? "Claude needs you" : "Claude is done"
             n.body = s.title + (s.detail.isEmpty ? "" : "\n" + s.detail)
             n.sound = .default
+            n.categoryIdentifier = "SESSION"
+            n.threadIdentifier = s.id
+            n.userInfo = ["session": s.id]
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.id + s.state, content: n, trigger: nil))
         }
     }
+}
+
+final class SpeechDone: NSObject, AVSpeechSynthesizerDelegate {
+    let done: @MainActor () -> Void
+    init(_ done: @escaping @MainActor () -> Void) { self.done = done }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { Task { @MainActor in done() } }
+    func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) { Task { @MainActor in done() } }
 }
 
 /// Receives the APNs device token and hands it to the monitor.
 final class AppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
     weak var monitor: Monitor?
     var pendingToken: Data?
-    func applicationDidFinishLaunching() { UNUserNotificationCenter.current().delegate = self }
+    func applicationDidFinishLaunching() {
+        let c = UNUserNotificationCenter.current()
+        c.delegate = self
+        let reply = UNTextInputNotificationAction(identifier: "REPLY", title: "Reply", options: [],
+                                                  textInputButtonTitle: "Send", textInputPlaceholder: "Message to Claude")
+        let read = UNNotificationAction(identifier: "READ", title: "Read aloud", options: [.foreground])
+        c.setNotificationCategories([UNNotificationCategory(identifier: "SESSION", actions: [reply, read], intentIdentifiers: [])])
+    }
+    /// Reply typed/dictated on the notification goes to the live session like the Send screen;
+    /// Read aloud opens the app and speaks the summary.
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse) async {
+        let info = r.notification.request.content.userInfo
+        guard let session = info["session"] as? String ?? (r.notification.request.content.threadIdentifier.isEmpty ? nil : r.notification.request.content.threadIdentifier) else { return }
+        let m: Monitor = await MainActor.run { monitor ?? Monitor.shared }
+        switch r.actionIdentifier {
+        case "REPLY":
+            guard let text = (r as? UNTextInputNotificationResponse)?.userText.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+            let err = await m.send(session: session, prompt: text, model: "", effort: "", tier: "")
+            if let err {
+                let n = UNMutableNotificationContent()
+                n.title = "Reply not sent"; n.body = err; n.sound = .default
+                try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "fail-" + session, content: n, trigger: nil))
+            }
+        case "READ":
+            await MainActor.run { m.speak(sessionId: session) }
+        default: break
+        }
+    }
     func didRegisterForRemoteNotifications(withDeviceToken deviceToken: Data) {
         Task { @MainActor in
             if let m = monitor, m.paired { await m.registerPush(deviceToken) } else { pendingToken = deviceToken }
@@ -165,7 +249,7 @@ final class AppDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCent
 
 @main struct ClaudeWatchApp: App {
     @WKApplicationDelegateAdaptor private var delegate: AppDelegate
-    @StateObject private var monitor = Monitor()
+    @StateObject private var monitor = Monitor.shared
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
