@@ -8,6 +8,7 @@ struct Session: Codable, Identifiable, Equatable {
     let state: String; let detail: String; let updated: Double
     var model: String? = nil; var effort: String? = nil
     var reply: String? = nil   // Claude's full last reply
+    var summary: String? = nil // wrap-up recap + outstanding list: what Read aloud says
 }
 struct Tier: Codable, Hashable { let id: String; let name: String }
 /// One entry of Claude Code's live model list, sent by the PC on every snapshot.

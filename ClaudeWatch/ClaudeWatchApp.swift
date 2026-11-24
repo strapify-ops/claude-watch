@@ -146,7 +146,8 @@ import WidgetKit
         if synth.isSpeaking { synth.stopSpeaking(at: .immediate); speaking = false; return }
         let text = Self.spoken(s)
         guard !text.isEmpty else { return }
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+        // .playback + the audio background mode keep speaking after the wrist drops
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, policy: .default, options: [])
         try? AVAudioSession.sharedInstance().setActive(true)
         let u = AVSpeechUtterance(string: text)
         u.voice = AVSpeechSynthesisVoice(language: "en-AU") ?? AVSpeechSynthesisVoice(language: "en-US")
@@ -162,7 +163,8 @@ import WidgetKit
 
     /// Plain text for speech: no code blocks, tables, links or Markdown marks; about a minute long.
     static func spoken(_ s: Session) -> String {
-        var t = (s.reply?.isEmpty == false ? s.reply! : s.detail)
+        // the session's own summary (recap + outstanding); the reply only when there is none
+        var t = s.summary?.isEmpty == false ? s.summary! : (s.reply?.isEmpty == false ? s.reply! : s.detail)
         t = t.replacingOccurrences(of: #"```[\s\S]*?```"#, with: " ", options: .regularExpression)
         t = t.replacingOccurrences(of: #"(?m)^\s*\|.*$"#, with: "", options: .regularExpression)      // table rows
         t = t.replacingOccurrences(of: #"!?\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)

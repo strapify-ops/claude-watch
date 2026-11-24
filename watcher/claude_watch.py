@@ -74,10 +74,34 @@ def quick_replies():
 def _blocks(content):
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
 
+OUT_HEAD = re.compile(r"(?im)^\W*(still )?(outstanding|not done|left to do|open items|caveats)\b.*$")
+
+def summary(recap, reply):
+    """What the watch reads aloud: the wrap-up recap (what was done, where it stands) plus the
+    reply's outstanding list, and nothing else of the reply."""
+    out = []
+    m = OUT_HEAD.search(reply or "")
+    if m:
+        for ln in reply[m.end():].splitlines():
+            t = ln.strip()
+            if not t:
+                if out: break   # the list ended
+                continue
+            if not re.match(r"^([-*+]|\d+\.)\s", t) and out:
+                break           # prose after the list (e.g. "can be archived")
+            out.append(re.sub(r"^([-*+]|\d+\.)\s+", "", t))
+    text = recap
+    if out:
+        text += ("\n\n" if text else "") + "Outstanding:\n" + "\n".join(out)
+    elif re.search(r"(?i)nothing outstanding", reply or ""):
+        text += ("\n\n" if text else "") + "Nothing outstanding."
+    return text[:2000]
+
 def read_session(path, app_mode=""):
     s = {"id": os.path.basename(path)[:-6], "title": "", "cwd": "", "state": "ready", "detail": "",
          "updated": os.path.getmtime(path), "model": "", "effort": "", "mode": ""}
     pending, first_prompt, custom, last_text, last = {}, "", "", "", None
+    recap = ""   # the turn's wrap-up recap: the spoken summary
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             try:
@@ -103,6 +127,7 @@ def read_session(path, app_mode=""):
                     if txt and not txt.startswith("<") and not first_prompt:
                         first_prompt = txt
                     pending.clear()
+                    recap = ""   # a new turn: the old recap no longer describes it
                 last = "working"
             else:
                 s["model"] = msg.get("model") or s["model"]
@@ -110,6 +135,8 @@ def read_session(path, app_mode=""):
                 for b in _blocks(c):
                     if b.get("type") == "tool_use":
                         pending[b.get("id")] = b.get("name", "")
+                        if b.get("name", "").endswith("wrap_up"):
+                            recap = ((b.get("input") or {}).get("recap") or "").strip()
                     elif b.get("type") == "text" and b.get("text", "").strip():
                         last_text = b["text"].strip()
                 last = "ready" if msg.get("stop_reason") == "end_turn" and not pending else "working"
@@ -130,7 +157,7 @@ def read_session(path, app_mode=""):
     if state == "working" and time.time() - s["updated"] > 600:
         state, detail = "stopped", "No activity for 10+ min (interrupted?)"
     s["title"] = _title(custom or first_prompt) or os.path.basename(s["cwd"]) or "Claude session"
-    s.update(state=state, detail=detail, reply=last_text[:REPLY_MAX])
+    s.update(state=state, detail=detail, reply=last_text[:REPLY_MAX], summary=summary(recap, last_text))
     return s
 
 def app_sessions():

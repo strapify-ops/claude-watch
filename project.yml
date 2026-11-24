@@ -54,6 +54,7 @@ targets:
         WKApplication: true
         WKWatchOnly: true
         ITSAppUsesNonExemptEncryption: false
+        UIBackgroundModes: [audio]   # Read aloud keeps going after the wrist drops
     settings:
       groups: [common]
       base:
